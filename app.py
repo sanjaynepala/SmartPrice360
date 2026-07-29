@@ -1,146 +1,83 @@
-import re
-import requests
+import streamlit as st
+import pandas as pd
+from database import init_db, save_price
+from scraper import extract_product_title_from_url, fetch_prices_via_api
 
-# 🔑 Mee RapidAPI Screenshots lo unna exact key
-API_KEY = "3a2010ce9cmsh09368a2ee0c0202p1c2713jsn6e2044bab41a"
+st.set_page_config(
+    page_title="Smart E-Commerce Price Tracker",
+    page_icon="🛍️",
+    layout="wide"
+)
 
-def extract_product_title_from_url(url):
-    """URL path nunchi product name extract chesthundhi"""
-    try:
-        clean_url = url.split("?")[0]
-        parts = [p for p in clean_url.split("/") if p]
-        
-        for part in reversed(parts):
-            if "-" in part or "_" in part:
-                title = part.replace("-", " ").replace("_", " ").title()
-                title = re.sub(r'\b[pP][0-9a-zA-Z]+\b', '', title)
-                if len(title.strip()) > 5:
-                    return title.strip()
-    except Exception:
-        pass
-    return "Combraided Self Design Men Neck Brown T Shirt"
+init_db()
 
-# --- 1. FLIPKART RAPIDAPI (Screenshot 2 Matching) ---
-def fetch_flipkart_price(product_title, user_key):
-    key = user_key if user_key else API_KEY
-    url = "https://real-time-flipkart-data2.p.rapidapi.com/search"
-    querystring = {"q": product_title}
-    headers = {
-        "x-rapidapi-key": key,
-        "x-rapidapi-host": "real-time-flipkart-data2.p.rapidapi.com"
-    }
-    try:
-        response = requests.get(url, headers=headers, params=querystring, timeout=5)
-        if response.status_code == 200:
-            data = response.json()
-            if "products" in data and len(data["products"]) > 0:
-                price = data["products"][0].get("price") or data["products"][0].get("current_price")
-                if price:
-                    return int(float(str(price).replace("₹", "").replace(",", "").strip()))
-    except Exception:
-        pass
-    return 235  # Live Scraped Demo Fallback
+st.title("🛍️ Smart E-Commerce Price Comparison & Tracker")
+st.write("Compare product prices across Flipkart, Amazon, Meesho, Ajio, and Myntra.")
 
-# --- 2. AMAZON RAPIDAPI (Screenshot 3 Matching) ---
-def fetch_amazon_price(product_title, user_key):
-    key = user_key if user_key else API_KEY
-    url = "https://real-time-amazon-data.p.rapidapi.com/search"
-    querystring = {"query": product_title, "country": "IN"}
-    headers = {
-        "x-rapidapi-key": key,
-        "x-rapidapi-host": "real-time-amazon-data.p.rapidapi.com"
-    }
-    try:
-        response = requests.get(url, headers=headers, params=querystring, timeout=5)
-        if response.status_code == 200:
-            data = response.json()
-            products = data.get("data", {}).get("products", [])
-            if products:
-                price_str = products[0].get("product_price") or products[0].get("price")
-                if price_str:
-                    return int(float(str(price_str).replace("₹", "").replace(",", "").replace("$", "").strip()))
-    except Exception:
-        pass
-    return 253  # Live Scraped Demo Fallback
+# Sidebar Configuration for Private Key
+st.sidebar.header("⚙️ Security & API Configuration")
 
-# --- 3. MEESHO RAPIDAPI (Screenshot 1 Matching) ---
-def fetch_meesho_price(product_title, user_key, fk_base_price, user_url=""):
-    key = user_key if user_key else API_KEY
-    url = "https://meesho-price-history-tracker4.p.rapidapi.com/meesho.php"
-    
-    headers = {
-        "content-type": "application/x-www-form-urlencoded",
-        "x-rapidapi-key": key,
-        "x-rapidapi-host": "meesho-price-history-tracker4.p.rapidapi.com"
-    }
-    
-    payload = {"url": user_url if "meesho.com" in user_url else "https://www.meesho.com"}
-    
-    try:
-        response = requests.post(url, data=payload, headers=headers, timeout=5)
-        if response.status_code == 200:
-            data = response.json()
-            price = data.get("price") or data.get("current_price")
-            if price:
-                return int(float(str(price).replace("₹", "").replace(",", "").strip()))
-    except Exception:
-        pass
-        
-    # Meesho competitive price calculation (~8% lower than Flipkart)
-    return int(fk_base_price * 0.92)
+# Streamlit Secrets nunchi check chesthundhi leda Manual Sidebar Input teesukuntundhi
+rapidapi_key = ""
+if "RAPIDAPI_KEY" in st.secrets:
+    rapidapi_key = st.secrets["RAPIDAPI_KEY"]
+else:
+    rapidapi_key = st.sidebar.text_input(
+        "Enter RapidAPI Key:", 
+        type="password", 
+        help="Keep your API key private. Enter it here for live API fetching."
+    )
 
-# --- AGGREGATOR FUNCTION ---
-def fetch_prices_via_api(product_title, api_key="", user_url=""):
-    # Fetch across all 3 live APIs from screenshots
-    flipkart_price = fetch_flipkart_price(product_title, api_key)
-    amazon_price = fetch_amazon_price(product_title, api_key)
-    meesho_price = fetch_meesho_price(product_title, api_key, flipkart_price, user_url)
-    
-    platforms = [
-        {
-            "platform": "Meesho",
-            "price": meesho_price,
-            "original_price": int(meesho_price * 2.1),
-            "rating": 4.0,
-            "stock": "In Stock",
-            "matching_name": f"{product_title} (Affordable)",
-            "url": "https://www.meesho.com"
-        },
-        {
-            "platform": "Flipkart",
-            "price": flipkart_price,
-            "original_price": int(flipkart_price * 2.5),
-            "rating": 4.1,
-            "stock": "In Stock",
-            "matching_name": product_title,
-            "url": user_url if "flipkart.com" in user_url else "https://www.flipkart.com"
-        },
-        {
-            "platform": "Amazon",
-            "price": amazon_price,
-            "original_price": int(amazon_price * 2.4),
-            "rating": 4.3,
-            "stock": "In Stock",
-            "matching_name": f"{product_title} - Amazon",
-            "url": "https://www.amazon.in"
-        },
-        {
-            "platform": "Ajio",
-            "price": int(flipkart_price * 1.12),
-            "original_price": int(flipkart_price * 2.4),
-            "rating": 4.2,
-            "stock": "Limited Stock",
-            "matching_name": f"{product_title} - Ajio",
-            "url": "https://www.ajio.com"
-        },
-        {
-            "platform": "Myntra",
-            "price": int(flipkart_price * 1.20),
-            "original_price": int(flipkart_price * 2.8),
-            "rating": 4.4,
-            "stock": "In Stock",
-            "matching_name": f"{product_title} - Myntra",
-            "url": "https://www.myntra.com"
-        }
-    ]
-    return platforms
+st.sidebar.markdown("---")
+st.sidebar.info("🔒 Code contains no hardcoded keys. Safe for GitHub & Cloud deployment.")
+
+# Product Input Section
+url_input = st.text_input(
+    "Enter Product URL:",
+    placeholder="https://www.flipkart.com/... or https://www.meesho.com/..."
+)
+
+search_btn = st.button("🔍 Search & Compare Prices", type="primary")
+
+if search_btn or url_input:
+    if url_input.strip():
+        with st.spinner("Fetching product data and prices..."):
+            product_title = extract_product_title_from_url(url_input)
+            st.subheader(f"📦 Product: **{product_title}**")
+            
+            results = fetch_prices_via_api(product_title, rapidapi_key, url_input)
+            
+            if results:
+                sorted_results = sorted(results, key=lambda x: x["price"])
+                cheapest = sorted_results[0]
+                
+                for r in results:
+                    save_price(product_title, r["platform"], r["price"])
+                
+                col1, col2, col3 = st.columns(3)
+                col1.metric("Lowest Price Platform", cheapest["platform"])
+                col2.metric("Best Price", f"₹{cheapest['price']}")
+                col3.metric("Status", cheapest["stock"])
+                
+                st.markdown("---")
+                
+                st.subheader("📊 Platform Price Comparison Table")
+                df = pd.DataFrame(results)
+                df_display = df[["platform", "price", "original_price", "rating", "stock", "url"]].copy()
+                df_display.columns = ["Platform", "Current Price (₹)", "Original Price (₹)", "Rating", "Stock", "Product Link"]
+                
+                st.dataframe(
+                    df_display, 
+                    column_config={"Product Link": st.column_config.LinkColumn("Product Link")},
+                    use_container_width=True
+                )
+                
+                st.subheader("📈 Price Comparison Chart")
+                chart_df = pd.DataFrame({
+                    "Platform": [r["platform"] for r in results],
+                    "Price (₹)": [r["price"] for r in results]
+                }).set_index("Platform")
+                
+                st.bar_chart(chart_df)
+    else:
+        st.warning("Please enter a valid product URL.")
