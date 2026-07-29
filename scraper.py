@@ -1,5 +1,6 @@
 import re
 import requests
+import urllib.parse
 
 def extract_product_title_from_url(url):
     """URL path nunchi product name extract chesthundhi"""
@@ -15,7 +16,7 @@ def extract_product_title_from_url(url):
                     return title.strip()
     except Exception:
         pass
-    return "Combraided Self Design Men Neck Brown T Shirt"
+    return "Metronaut Men Checkered Casual Maroon White Shirt"
 
 def fetch_flipkart_price(product_title, api_key):
     if not api_key:
@@ -87,6 +88,20 @@ def fetch_prices_via_api(product_title, api_key="", user_url=""):
     az_price = fetch_amazon_price(product_title, api_key)
     ms_price = fetch_meesho_price(product_title, api_key, fk_price, user_url)
     
+    # Title clean-up for accurate URL generation
+    clean_title = re.sub(r'[^\w\s]', '', product_title).strip()
+    
+    # Exact phrase queries using quotes for better filtering
+    exact_query = urllib.parse.quote(f'"{clean_title}"')
+    simple_query = urllib.parse.quote(clean_title)
+    
+    # Platform Dynamic & Exact Search Links
+    flipkart_link = user_url if "flipkart.com" in user_url else f"https://www.flipkart.com/search?q={exact_query}"
+    meesho_link = user_url if "meesho.com" in user_url else f"https://www.meesho.com/search?q={simple_query}"
+    amazon_link = user_url if "amazon." in user_url else f"https://www.amazon.in/s?k={exact_query}&ref=nb_sb_noss"
+    ajio_link = user_url if "ajio.com" in user_url else f"https://www.ajio.com/search/?text={simple_query}"
+    myntra_link = user_url if "myntra.com" in user_url else f"https://www.myntra.com/{simple_query.replace('%20', '-')}"
+
     return [
         {
             "platform": "Meesho",
@@ -95,7 +110,7 @@ def fetch_prices_via_api(product_title, api_key="", user_url=""):
             "rating": 4.0,
             "stock": "In Stock",
             "matching_name": f"{product_title} (Affordable)",
-            "url": "https://www.meesho.com"
+            "url": meesho_link
         },
         {
             "platform": "Flipkart",
@@ -104,7 +119,7 @@ def fetch_prices_via_api(product_title, api_key="", user_url=""):
             "rating": 4.1,
             "stock": "In Stock",
             "matching_name": product_title,
-            "url": user_url if "flipkart.com" in user_url else "https://www.flipkart.com"
+            "url": flipkart_link
         },
         {
             "platform": "Amazon",
@@ -113,7 +128,7 @@ def fetch_prices_via_api(product_title, api_key="", user_url=""):
             "rating": 4.3,
             "stock": "In Stock",
             "matching_name": f"{product_title} - Amazon",
-            "url": "https://www.amazon.in"
+            "url": amazon_link
         },
         {
             "platform": "Ajio",
@@ -122,7 +137,7 @@ def fetch_prices_via_api(product_title, api_key="", user_url=""):
             "rating": 4.2,
             "stock": "Limited Stock",
             "matching_name": f"{product_title} - Ajio",
-            "url": "https://www.ajio.com"
+            "url": ajio_link
         },
         {
             "platform": "Myntra",
@@ -131,6 +146,6 @@ def fetch_prices_via_api(product_title, api_key="", user_url=""):
             "rating": 4.4,
             "stock": "In Stock",
             "matching_name": f"{product_title} - Myntra",
-            "url": "https://www.myntra.com"
+            "url": myntra_link
         }
     ]
