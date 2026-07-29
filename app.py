@@ -14,10 +14,9 @@ init_db()
 st.title("🛍️ Smart E-Commerce Price Comparison & Tracker")
 st.write("Compare product prices across Flipkart, Amazon, Meesho, Ajio, and Myntra.")
 
-# Sidebar Configuration for Private Key
-st.sidebar.header("⚙️ Security & API Configuration")
+# Sidebar Configuration for Private API Key
+st.sidebar.header("⚙️ Configuration")
 
-# Streamlit Secrets nunchi check chesthundhi leda Manual Sidebar Input teesukuntundhi
 rapidapi_key = ""
 if "RAPIDAPI_KEY" in st.secrets:
     rapidapi_key = st.secrets["RAPIDAPI_KEY"]
@@ -25,13 +24,13 @@ else:
     rapidapi_key = st.sidebar.text_input(
         "Enter RapidAPI Key:", 
         type="password", 
-        help="Keep your API key private. Enter it here for live API fetching."
+        help="Enter key here or set up st.secrets for automatic loading."
     )
 
 st.sidebar.markdown("---")
 st.sidebar.info("🔒 Code contains no hardcoded keys. Safe for GitHub & Cloud deployment.")
 
-# Product Input Section
+# Input Section
 url_input = st.text_input(
     "Enter Product URL:",
     placeholder="https://www.flipkart.com/... or https://www.meesho.com/..."
