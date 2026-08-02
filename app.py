@@ -48,25 +48,32 @@ if search_btn or url_input:
             results = fetch_prices_via_api(product_title, rapidapi_key, url_input)
             
             if results:
-                sorted_results = sorted(results, key=lambda x: x["price"])
+                sorted_results = sorted(results, key=lambda x: x.get("price", 0))
                 cheapest = sorted_results[0]
                 
                 # Save available prices to database
                 for r in results:
-                    save_price(product_title, r["platform"], r["price"])
+                    save_price(product_title, r.get("platform", "Unknown"), r.get("price", 0))
                 
                 # Key Metrics Cards
                 col1, col2, col3 = st.columns(3)
-                col1.metric("Lowest Price Platform", cheapest["platform"])
-                col2.metric("Best Price", f"₹{cheapest['price']}")
+                col1.metric("Lowest Price Platform", cheapest.get("platform", "N/A"))
+                col2.metric("Best Price", f"₹{cheapest.get('price', 'N/A')}")
                 col3.metric("Available Platforms", f"{len(results)} of 5")
                 
                 st.markdown("---")
                 
-                # Comparison Dataframe Table (Only verified available platforms are shown)
+                # Comparison Dataframe Table with KeyError Defense
                 st.subheader("📊 Platform Price Comparison Table")
                 df = pd.DataFrame(results)
-                df_display = df[["platform", "price", "original_price", "rating", "stock", "link_type", "url"]].copy()
+                
+                # Ensure all required columns exist to avoid KeyError
+                required_cols = ["platform", "price", "original_price", "rating", "stock", "link_type", "url"]
+                for col in required_cols:
+                    if col not in df.columns:
+                        df[col] = "N/A"
+                
+                df_display = df[required_cols].copy()
                 df_display.columns = ["Platform", "Current Price (₹)", "Original Price (₹)", "Rating", "Stock", "Link Type", "Product Link"]
                 
                 st.dataframe(
@@ -81,8 +88,8 @@ if search_btn or url_input:
                 # Price Comparison Bar Chart
                 st.subheader("📈 Price Comparison Chart")
                 chart_df = pd.DataFrame({
-                    "Platform": [r["platform"] for r in results],
-                    "Price (₹)": [r["price"] for r in results]
+                    "Platform": [r.get("platform", "N/A") for r in results],
+                    "Price (₹)": [r.get("price", 0) for r in results]
                 }).set_index("Platform")
                 
                 st.bar_chart(chart_df)
