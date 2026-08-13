@@ -2,10 +2,7 @@ import re
 import requests
 import urllib.parse
 
-# ---------------------------------------------------------------------------
-# Generic product category dictionary.
-# Sorted longest-first so multi-word categories are matched before shorter substrings.
-# ---------------------------------------------------------------------------
+# Product categories dictionary (sorted longest-first)
 PRODUCT_CATEGORIES = [
     # Beauty / Personal care
     "face wash", "face cream", "face serum", "face mask", "sunscreen",
@@ -43,55 +40,77 @@ PRODUCT_CATEGORIES = [
 ]
 PRODUCT_CATEGORIES.sort(key=len, reverse=True)
 
-ELECTRONICS_KEYWORDS = [
-    "mobile", "phone", "laptop", "computer", "tv", "television", "refrigerator",
-    "fridge", "washing machine", "earbuds", "headphone", "earphone", "monitor",
-    "processor", "ram", "ssd", "hard drive", "camera", "tablet", "ipad", "iphone",
-    "samsung galaxy", "redmi", "realme", "oneplus", "smartwatch", "router",
-]
-
 
 def parse_price(val):
-    """Safely extracts integer price from numbers, strings, dicts, or currency formats."""
+    """Safely parses numbers into clean integer values without mock fallback values."""
     if val is None:
         return None
     if isinstance(val, (int, float)):
-        return int(val)
+        return int(val) if val > 0 else None
     if isinstance(val, dict):
         val = val.get("value") or val.get("price") or val.get("amount") or val.get("specialPrice")
         if val is None:
             return None
     cleaned = re.sub(r'[^\d.]', '', str(val).replace(',', ''))
     try:
-        return int(float(cleaned))
+        parsed = int(float(cleaned))
+        return parsed if parsed > 0 else None
     except (ValueError, TypeError):
         return None
 
 
-def extract_price_from_dict(p):
-    """Deeply inspects product dictionaries for Flipkart/Amazon price structures."""
+def extract_price_and_mrp_from_dict(p):
+    """Extracts real current price and real original price (MRP) from API JSON objects."""
     if not isinstance(p, dict):
-        return None
+        return None, None
     
+    # 1. Extract Current Price
+    price = None
     for key in ["price", "current_price", "selling_price", "final_price", "special_price", "offer_price"]:
         val = p.get(key)
         parsed = parse_price(val)
         if parsed:
-            return parsed
-    
-    pricing = p.get("pricing")
-    if isinstance(pricing, dict):
-        for key in ["finalPrice", "specialPrice", "sellingPrice", "currentPrice"]:
-            val = pricing.get(key)
-            parsed = parse_price(val)
-            if parsed:
-                return parsed
-                    
-    return None
+            price = parsed
+            break
+            
+    if not price:
+        pricing = p.get("pricing")
+        if isinstance(pricing, dict):
+            for key in ["finalPrice", "specialPrice", "sellingPrice", "currentPrice"]:
+                val = pricing.get(key)
+                parsed = parse_price(val)
+                if parsed:
+                    price = parsed
+                    break
+
+    # 2. Extract Real Original Price (MRP)
+    original_price = None
+    for key in ["original_price", "mrp", "list_price", "full_price", "retail_price", "product_original_price"]:
+        val = p.get(key)
+        parsed = parse_price(val)
+        if parsed:
+            original_price = parsed
+            break
+
+    if not original_price:
+        pricing = p.get("pricing")
+        if isinstance(pricing, dict):
+            for key in ["mrp", "originalPrice", "listPrice"]:
+                val = pricing.get(key)
+                parsed = parse_price(val)
+                if parsed:
+                    original_price = parsed
+                    break
+
+    # If original price is less than or equal to current price, set to None
+    if original_price and price and original_price <= price:
+        original_price = None
+
+    return price, original_price
 
 
 def extract_product_title_from_url(url):
-    """Extracts a clean, full product title from the URL slug."""
+    """Extracts a clean, human-readable product title from the URL path slug."""
     try:
         clean_url = url.split("?")[0]
         parts = [p for p in clean_url.split("/") if p]
@@ -111,10 +130,7 @@ def extract_product_title_from_url(url):
 
 
 def detect_category(title_lower):
-    """
-    Finds matching category using regex word boundaries to prevent 
-    substring false positives (e.g. matching 'tv' inside 'activewear').
-    """
+    """Finds category match using exact regex word boundaries."""
     for category in PRODUCT_CATEGORIES:
         pattern = r'\b' + re.escape(category) + r'\b'
         if re.search(pattern, title_lower):
@@ -123,7 +139,7 @@ def detect_category(title_lower):
 
 
 def extract_brand_and_category(product_title):
-    """Extracts brand name and category from product title."""
+    """Extracts brand and category from product title."""
     title = re.sub(r'[^\w\s]', '', product_title).strip()
     title_lower = title.lower()
 
@@ -145,7 +161,6 @@ def extract_brand_and_category(product_title):
         search_query = f"{brand} {category}".strip() if brand else category
         return brand, category, search_query
 
-    # Fallback if no known category matches
     words = title.split()
     if not words:
         return "", "", product_title
@@ -159,50 +174,10 @@ def extract_brand_and_category(product_title):
     return brand, "", search_query
 
 
-def extract_brand_name(product_title):
-    brand, _, _ = extract_brand_and_category(product_title)
-    return brand
-
-
 def get_search_keywords(product_title, max_words=5):
     _, _, search_query = extract_brand_and_category(product_title)
     words = search_query.split()
     return " ".join(words[:max_words]) if words else product_title
-
-
-def is_electronics_product(product_title):
-    title_lower = product_title.lower()
-    return any(keyword in title_lower for keyword in ELECTRONICS_KEYWORDS)
-
-
-def check_platform_availability_live(platform_name, search_keywords, brand):
-    if not brand or len(brand) < 3:
-        return True
-
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-    }
-    encoded_query = urllib.parse.quote(search_keywords)
-
-    try:
-        if platform_name == "Meesho":
-            url = f"https://www.meesho.com/search?q={encoded_query}"
-            r = requests.get(url, headers=headers, timeout=3)
-            return r.status_code == 200
-
-        elif platform_name == "Ajio":
-            url = f"https://www.ajio.com/search/?text={encoded_query}"
-            r = requests.get(url, headers=headers, timeout=3)
-            return r.status_code == 200
-
-        elif platform_name == "Myntra":
-            url = f"https://www.myntra.com/search?rawQuery={encoded_query}"
-            r = requests.get(url, headers=headers, timeout=3)
-            return r.status_code == 200
-    except Exception:
-        pass
-
-    return True
 
 
 def _find_first_product_list(data):
@@ -230,10 +205,10 @@ def _find_first_product_list(data):
 
 
 def fetch_flipkart_data(product_title, api_key):
-    """Fetches Flipkart data via RapidAPI with fallback error messaging."""
+    """Fetches real Flipkart price data via RapidAPI."""
     if not api_key:
-        return {"price": None, "url": None, "is_available": False,
-                "debug": "No RapidAPI key provided - using calculated estimate for Flipkart."}
+        return {"price": None, "original_price": None, "url": None, "is_available": False,
+                "debug": "No RapidAPI key provided for Flipkart live data."}
 
     url = "https://real-time-flipkart-data2.p.rapidapi.com/search"
     headers = {
@@ -246,7 +221,7 @@ def fetch_flipkart_data(product_title, api_key):
 
         if response.status_code != 200:
             return {
-                "price": None, "url": None, "is_available": False,
+                "price": None, "original_price": None, "url": None, "is_available": False,
                 "debug": f"Flipkart API returned HTTP {response.status_code}."
             }
 
@@ -255,31 +230,31 @@ def fetch_flipkart_data(product_title, api_key):
 
         if not products:
             return {
-                "price": None, "url": None, "is_available": False,
-                "debug": "Flipkart API returned 200 OK but 0 products found."
+                "price": None, "original_price": None, "url": None, "is_available": False,
+                "debug": "Flipkart API returned 200 OK but no matching product found."
             }
 
         p = products[0]
-        parsed_price = extract_price_from_dict(p)
+        price, original_price = extract_price_and_mrp_from_dict(p)
         product_url = p.get("url") or p.get("product_url") or p.get("link")
 
-        if not parsed_price:
+        if not price:
             return {
-                "price": None, "url": None, "is_available": False,
-                "debug": "Flipkart product found but unable to parse price."
+                "price": None, "original_price": None, "url": None, "is_available": False,
+                "debug": "Flipkart product found but no valid price returned from API."
             }
 
-        return {"price": parsed_price, "url": product_url, "is_available": True, "debug": None}
+        return {"price": price, "original_price": original_price, "url": product_url, "is_available": True, "debug": None}
 
     except Exception as e:
-        return {"price": None, "url": None, "is_available": False, "debug": f"Flipkart API exception: {e}"}
+        return {"price": None, "original_price": None, "url": None, "is_available": False, "debug": f"Flipkart API error: {e}"}
 
 
 def fetch_amazon_data(product_title, api_key):
-    """Fetches Amazon data via RapidAPI with fallback error messaging."""
+    """Fetches real Amazon price data via RapidAPI."""
     if not api_key:
-        return {"price": None, "url": None, "is_available": False,
-                "debug": "No RapidAPI key provided - using calculated estimate for Amazon."}
+        return {"price": None, "original_price": None, "url": None, "is_available": False,
+                "debug": "No RapidAPI key provided for Amazon live data."}
 
     url = "https://real-time-amazon-data.p.rapidapi.com/search"
     headers = {
@@ -292,7 +267,7 @@ def fetch_amazon_data(product_title, api_key):
 
         if response.status_code != 200:
             return {
-                "price": None, "url": None, "is_available": False,
+                "price": None, "original_price": None, "url": None, "is_available": False,
                 "debug": f"Amazon API returned HTTP {response.status_code}."
             }
 
@@ -301,29 +276,30 @@ def fetch_amazon_data(product_title, api_key):
 
         if not products:
             return {
-                "price": None, "url": None, "is_available": False,
-                "debug": "Amazon API returned 200 OK but 0 products found."
+                "price": None, "original_price": None, "url": None, "is_available": False,
+                "debug": "Amazon API returned 200 OK but no matching product found."
             }
 
         p = products[0]
-        parsed_price = extract_price_from_dict(p)
+        price, original_price = extract_price_and_mrp_from_dict(p)
         product_url = p.get("product_url") or p.get("url")
 
-        if not parsed_price:
+        if not price:
             return {
-                "price": None, "url": None, "is_available": False,
-                "debug": "Amazon product found but unable to parse price."
+                "price": None, "original_price": None, "url": None, "is_available": False,
+                "debug": "Amazon product found but no valid price returned from API."
             }
 
-        return {"price": parsed_price, "url": product_url, "is_available": True, "debug": None}
+        return {"price": price, "original_price": original_price, "url": product_url, "is_available": True, "debug": None}
 
     except Exception as e:
-        return {"price": None, "url": None, "is_available": False, "debug": f"Amazon API exception: {e}"}
+        return {"price": None, "original_price": None, "url": None, "is_available": False, "debug": f"Amazon API error: {e}"}
 
 
-def fetch_meesho_price(product_title, api_key, base_price, user_url=""):
+def fetch_meesho_data(product_title, api_key, user_url=""):
+    """Fetches real Meesho data ONLY if a valid Meesho URL or API returns live data."""
     if not api_key or "meesho.com" not in user_url:
-        return int(base_price * 0.92) if base_price else 200
+        return {"price": None, "original_price": None, "url": None, "is_available": False, "debug": "No live Meesho API/URL provided."}
 
     url = "https://meesho-price-history-tracker4.p.rapidapi.com/meesho.php"
     headers = {
@@ -337,124 +313,79 @@ def fetch_meesho_price(product_title, api_key, base_price, user_url=""):
         if response.status_code == 200:
             data = response.json()
             price = parse_price(data.get("price") or data.get("current_price"))
+            original_price = parse_price(data.get("original_price") or data.get("mrp"))
             if price:
-                return price
-    except Exception:
-        pass
-    return int(base_price * 0.92) if base_price else 200
+                return {
+                    "price": price,
+                    "original_price": original_price,
+                    "url": user_url,
+                    "is_available": True,
+                    "debug": None
+                }
+    except Exception as e:
+        return {"price": None, "original_price": None, "url": None, "is_available": False, "debug": f"Meesho API error: {e}"}
+
+    return {"price": None, "original_price": None, "url": None, "is_available": False, "debug": "Meesho returned no live price."}
 
 
 def fetch_prices_via_api(product_title, api_key="", user_url=""):
     """
-    Fetches and builds price comparison data across ALL 5 platforms:
-    Flipkart, Amazon, Meesho, Ajio, and Myntra.
+    Fetches real price data across platforms.
+    ONLY includes platforms where actual real price data was successfully fetched.
+    No random prices, no mock estimates, no ratings.
     """
     brand, category, search_keywords = extract_brand_and_category(product_title)
     encoded_query = urllib.parse.quote(search_keywords)
 
     fk_data = fetch_flipkart_data(product_title, api_key)
     az_data = fetch_amazon_data(product_title, api_key)
+    ms_data = fetch_meesho_data(product_title, api_key, user_url)
 
-    fk_price = fk_data.get("price")
-    az_price = az_data.get("price")
-    base_price = fk_price or az_price or 500
-
-    ms_price = fetch_meesho_price(product_title, api_key, base_price, user_url)
-    is_electronics = is_electronics_product(product_title)
-
-    # --- Flipkart Link & Price Fallback (Guarantees 5/5 display) ---
-    if "flipkart.com" in user_url:
-        flipkart_link = user_url
-        fk_exact = True
-    elif fk_data.get("url"):
-        flipkart_link = fk_data["url"]
-        fk_exact = True
-    else:
-        flipkart_link = f"https://www.flipkart.com/search?q={encoded_query}"
-        fk_exact = False
-
-    final_fk_price = fk_price if fk_price is not None else int(base_price * 1.02)
-
-    # --- Amazon Link & Price Fallback ---
-    if "amazon." in user_url:
-        amazon_link = user_url
-        az_exact = True
-    elif az_data.get("url"):
-        amazon_link = az_data["url"]
-        az_exact = True
-    else:
-        amazon_link = f"https://www.amazon.in/s?k={encoded_query}"
-        az_exact = False
-
-    final_az_price = az_price if az_price is not None else int(base_price * 1.05)
-
-    # --- Platform Links ---
-    meesho_link = user_url if "meesho.com" in user_url else f"https://www.meesho.com/search?q={encoded_query}"
-    ajio_link = user_url if "ajio.com" in user_url else f"https://www.ajio.com/search/?text={encoded_query}"
-    myntra_link = user_url if "myntra.com" in user_url else f"https://www.myntra.com/search?rawQuery={encoded_query}"
-
-    # Availability Checks
-    ajio_available = not is_electronics
-    myntra_available = not is_electronics
-
-    all_platforms = [
-        {
-            "platform": "Meesho",
-            "price": ms_price,
-            "original_price": int(ms_price * 2.1),
-            "rating": 4.0,
-            "stock": "In Stock",
-            "url": meesho_link,
-            "link_type": "Direct Product" if "meesho.com" in user_url else "Search Results",
-            "is_available": True
-        },
-        {
-            "platform": "Flipkart",
-            "price": final_fk_price,
-            "original_price": int(final_fk_price * 2.2),
-            "rating": 4.2,
-            "stock": "In Stock",
-            "url": flipkart_link,
-            "link_type": "Direct Product" if fk_exact else "Search Results",
-            "is_available": True  # Always show Flipkart
-        },
-        {
-            "platform": "Amazon",
-            "price": final_az_price,
-            "original_price": int(final_az_price * 2.3),
-            "rating": 4.4,
-            "stock": "In Stock",
-            "url": amazon_link,
-            "link_type": "Direct Product" if az_exact else "Search Results",
-            "is_available": True  # Always show Amazon
-        },
-        {
-            "platform": "Ajio",
-            "price": int(base_price * 1.12),
-            "original_price": int(base_price * 2.4),
-            "rating": 4.1,
-            "stock": "Limited Stock",
-            "url": ajio_link,
-            "link_type": "Direct Product" if "ajio.com" in user_url else "Search Results",
-            "is_available": ajio_available
-        },
-        {
-            "platform": "Myntra",
-            "price": int(base_price * 1.20),
-            "original_price": int(base_price * 2.8),
-            "rating": 4.3,
-            "stock": "In Stock",
-            "url": myntra_link,
-            "link_type": "Direct Product" if "myntra.com" in user_url else "Search Results",
-            "is_available": myntra_available
-        }
-    ]
-
+    available_platforms = []
     debug_info = {}
-    if fk_data.get("debug"):
+
+    # 1. Flipkart
+    if fk_data.get("is_available") and fk_data.get("price") is not None:
+        fk_url = fk_data.get("url") or (user_url if "flipkart.com" in user_url else f"https://www.flipkart.com/search?q={encoded_query}")
+        available_platforms.append({
+            "platform": "Flipkart",
+            "price": fk_data["price"],
+            "original_price": fk_data.get("original_price"),
+            "stock": "In Stock",
+            "url": fk_url,
+            "link_type": "Direct Product" if fk_data.get("url") or "flipkart.com" in user_url else "Search Results",
+            "is_available": True
+        })
+    elif fk_data.get("debug"):
         debug_info["Flipkart"] = fk_data["debug"]
-    if az_data.get("debug"):
+
+    # 2. Amazon
+    if az_data.get("is_available") and az_data.get("price") is not None:
+        az_url = az_data.get("url") or (user_url if "amazon." in user_url else f"https://www.amazon.in/s?k={encoded_query}")
+        available_platforms.append({
+            "platform": "Amazon",
+            "price": az_data["price"],
+            "original_price": az_data.get("original_price"),
+            "stock": "In Stock",
+            "url": az_url,
+            "link_type": "Direct Product" if az_data.get("url") or "amazon." in user_url else "Search Results",
+            "is_available": True
+        })
+    elif az_data.get("debug"):
         debug_info["Amazon"] = az_data["debug"]
 
-    available = [p for p in all_platforms if p["is_available"]]
-    return available, debug_info
+    # 3. Meesho
+    if ms_data.get("is_available") and ms_data.get("price") is not None:
+        available_platforms.append({
+            "platform": "Meesho",
+            "price": ms_data["price"],
+            "original_price": ms_data.get("original_price"),
+            "stock": "In Stock",
+            "url": ms_data.get("url") or user_url,
+            "link_type": "Direct Product",
+            "is_available": True
+        })
+    elif ms_data.get("debug"):
+        debug_info["Meesho"] = ms_data["debug"]
+
+    return available_platforms, debug_info
