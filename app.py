@@ -1,6 +1,5 @@
 import streamlit as st
 import pandas as pd
-from database import init_db, save_price, get_price_history
 from scraper import (
     extract_product_title_from_url,
     extract_brand_and_category,
@@ -13,9 +12,6 @@ st.set_page_config(
     page_icon="🛍️",
     layout="wide"
 )
-
-# Initialize database tables
-init_db()
 
 st.title("🛍️ Smart E-Commerce Price Comparison & Tracker")
 st.write("Compare product prices across Flipkart, Amazon, Meesho, Ajio, and Myntra.")
@@ -62,10 +58,6 @@ if search_btn or url_input:
             sorted_results = sorted(results, key=lambda x: x["price"])
             cheapest = sorted_results[0]
             
-            # Save fetched prices to SQLite database
-            for r in results:
-                save_price(product_title, r["platform"], r["price"])
-            
             # Key Metrics Cards (4 Columns)
             col1, col2, col3, col4 = st.columns(4)
             col1.metric("Lowest Price Platform", cheapest["platform"])
@@ -94,14 +86,6 @@ if search_btn or url_input:
             st.subheader("📈 Price Comparison Visualizer")
             chart_df = df[["platform", "price"]].rename(columns={"platform": "Platform", "price": "Price (₹)"}).set_index("Platform")
             st.bar_chart(chart_df)
-            
-            # Saved Price History Table from DB
-            history = get_price_history(product_title)
-            if history:
-                st.markdown("---")
-                st.subheader("📜 Recorded Price History (Database)")
-                hist_df = pd.DataFrame(history, columns=["Platform", "Price (₹)", "Timestamp"])
-                st.dataframe(hist_df, use_container_width=True)
         else:
             st.warning(f"⚠️ No matching platforms found for **{product_title}**.")
     else:
