@@ -61,7 +61,7 @@ PRODUCT_CATEGORIES.sort(key=len, reverse=True)
 
 
 def parse_price(val):
-    """అసలైన ప్రైస్ మాత్రమే రిటర్న్ చేస్తుంది. లేకపోతే None ఇస్తుంది."""
+    """Safely converts input values to positive integers. Returns None for invalid prices."""
     if val is None:
         return None
     if isinstance(val, (int, float)):
@@ -85,7 +85,7 @@ def parse_price(val):
 
 
 def extract_price_and_mrp_from_dict(p):
-    """API JSON నుండి ప్రైస్ మరియు MRP ఎక్స్‌ట్రాక్ట్ చేస్తుంది."""
+    """Extracts actual listing price and original MRP from API response dictionary."""
     if not isinstance(p, dict):
         return None, None
 
@@ -141,6 +141,7 @@ def extract_price_and_mrp_from_dict(p):
 
 
 def extract_product_title_from_url(url):
+    """Parses clean product title from the input URL path slug."""
     try:
         clean_url = url.split("?")[0]
         parts = [p for p in clean_url.split("/") if p]
@@ -161,6 +162,7 @@ def extract_product_title_from_url(url):
 
 
 def detect_category(title_lower):
+    """Detects matching product category using exact word boundaries."""
     for category in PRODUCT_CATEGORIES:
         pattern = r"\b" + re.escape(category) + r"\b"
         if re.search(pattern, title_lower):
@@ -169,6 +171,7 @@ def detect_category(title_lower):
 
 
 def extract_brand_and_category(product_title):
+    """Extracts brand, category, and builds an optimized search query string."""
     title = re.sub(r"[^\w\s]", "", product_title).strip()
     title_lower = title.lower()
     category = detect_category(title_lower)
@@ -191,12 +194,14 @@ def extract_brand_and_category(product_title):
 
 
 def get_search_keywords(product_title, max_words=5):
+    """Truncates search keywords to avoid overly specific query strings."""
     _, _, search_query = extract_brand_and_category(product_title)
     words = search_query.split()
     return " ".join(words[:max_words]) if words else product_title
 
 
 def fetch_flipkart_data(product_title, api_key):
+    """Fetches real-time price data for Flipkart via RapidAPI."""
     if not api_key:
         return {
             "platform": "Flipkart",
@@ -204,7 +209,7 @@ def fetch_flipkart_data(product_title, api_key):
             "original_price": None,
             "url": None,
             "is_available": False,
-            "debug": "RapidAPI Key ఎంటర్ చేయలేదు.",
+            "debug": "Missing RapidAPI key.",
         }
 
     url = "https://real-time-flipkart-data2.p.rapidapi.com/search"
@@ -224,7 +229,7 @@ def fetch_flipkart_data(product_title, api_key):
                 "original_price": None,
                 "url": None,
                 "is_available": False,
-                "debug": f"HTTP {response.status_code}",
+                "debug": f"HTTP status code {response.status_code}.",
             }
 
         data = response.json()
@@ -236,7 +241,7 @@ def fetch_flipkart_data(product_title, api_key):
                 "original_price": None,
                 "url": None,
                 "is_available": False,
-                "debug": "ప్రొడక్ట్ దొరకలేదు.",
+                "debug": "No product matched the search query.",
             }
 
         p = products[0]
@@ -250,7 +255,7 @@ def fetch_flipkart_data(product_title, api_key):
                 "original_price": None,
                 "url": None,
                 "is_available": False,
-                "debug": "ప్రైస్ లభించలేదు.",
+                "debug": "Product found, but valid price was unavailable.",
             }
 
         return {
@@ -273,6 +278,7 @@ def fetch_flipkart_data(product_title, api_key):
 
 
 def fetch_amazon_data(product_title, api_key):
+    """Fetches real-time price data for Amazon via RapidAPI."""
     if not api_key:
         return {
             "platform": "Amazon",
@@ -280,7 +286,7 @@ def fetch_amazon_data(product_title, api_key):
             "original_price": None,
             "url": None,
             "is_available": False,
-            "debug": "RapidAPI Key ఎంటర్ చేయలేదు.",
+            "debug": "Missing RapidAPI key.",
         }
 
     url = "https://real-time-amazon-data.p.rapidapi.com/search"
@@ -303,7 +309,7 @@ def fetch_amazon_data(product_title, api_key):
                 "original_price": None,
                 "url": None,
                 "is_available": False,
-                "debug": f"HTTP {response.status_code}",
+                "debug": f"HTTP status code {response.status_code}.",
             }
 
         data = response.json()
@@ -315,7 +321,7 @@ def fetch_amazon_data(product_title, api_key):
                 "original_price": None,
                 "url": None,
                 "is_available": False,
-                "debug": "ప్రొడక్ట్ దొరకలేదు.",
+                "debug": "No product matched the search query.",
             }
 
         p = products[0]
@@ -329,7 +335,7 @@ def fetch_amazon_data(product_title, api_key):
                 "original_price": None,
                 "url": None,
                 "is_available": False,
-                "debug": "ప్రైస్ లభించలేదు.",
+                "debug": "Product found, but valid price was unavailable.",
             }
 
         return {
@@ -352,6 +358,7 @@ def fetch_amazon_data(product_title, api_key):
 
 
 def fetch_meesho_data(product_title, api_key, user_url=""):
+    """Fetches price data for Meesho when a direct product URL is supplied."""
     if not api_key or "meesho.com" not in user_url:
         return {
             "platform": "Meesho",
@@ -359,7 +366,7 @@ def fetch_meesho_data(product_title, api_key, user_url=""):
             "original_price": None,
             "url": None,
             "is_available": False,
-            "debug": "Meesho URL అవసరం.",
+            "debug": "Direct Meesho product URL required.",
         }
 
     url = "https://meesho-price-history-tracker4.p.rapidapi.com/meesho.php"
@@ -399,11 +406,12 @@ def fetch_meesho_data(product_title, api_key, user_url=""):
         "original_price": None,
         "url": None,
         "is_available": False,
-        "debug": "ప్రైస్ ఫెచ్ కాలేదు.",
+        "debug": "No live price returned by Meesho API.",
     }
 
 
 def fetch_prices_via_api(product_title, api_key="", user_url=""):
+    """Fetches verified live prices concurrently across supported e-commerce platforms."""
     _, _, search_keywords = extract_brand_and_category(product_title)
     encoded_query = urllib.parse.quote(search_keywords)
 
@@ -421,7 +429,7 @@ def fetch_prices_via_api(product_title, api_key="", user_url=""):
             platform_name = futures[future]
             try:
                 res = future.result()
-                # Strict Checking: price కచ్చితంగా నంబర్ మరియు > 0 ఉండాలి
+                # Strict validation: Include only platforms with positive numeric prices
                 if res.get("is_available") and isinstance(res.get("price"), (int, float)) and res["price"] > 0:
                     fallback_url = (
                         f"https://www.amazon.in/s?k={encoded_query}"
@@ -451,6 +459,6 @@ def fetch_prices_via_api(product_title, api_key="", user_url=""):
                     if res.get("debug"):
                         debug_info[platform_name] = res["debug"]
             except Exception as exc:
-                debug_info[platform_name] = f"Error: {exc}"
+                debug_info[platform_name] = f"Execution error: {exc}"
 
     return available_platforms, debug_info
