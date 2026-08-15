@@ -21,11 +21,7 @@ st.write(
 
 # Sidebar Controls for API Keys
 st.sidebar.header("⚙️ API Settings")
-rapidapi_key = st.sidebar.text_input(
-    "RapidAPI Key",
-    type="password",
-    help="Enter your RapidAPI key to fetch live price data from supported platforms."
-)
+rapidapi_key ="687f7dd169msh995ee272be06115p163871jsnb2c6c09b57c2"
 
 # Main UI Input
 url_input = st.text_input(
