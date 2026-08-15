@@ -40,6 +40,9 @@ PRODUCT_CATEGORIES = [
 ]
 PRODUCT_CATEGORIES.sort(key=len, reverse=True)
 
+# Platforms that are actually implemented and callable (used to keep UI copy honest)
+IMPLEMENTED_PLATFORMS = ["Flipkart", "Amazon", "Meesho"]
+
 
 def parse_price(val):
     """Safely parses numbers into clean integer values without mock fallback values."""
@@ -63,16 +66,23 @@ def extract_price_and_mrp_from_dict(p):
     """Extracts real current price and real original price (MRP) from API JSON objects."""
     if not isinstance(p, dict):
         return None, None
-    
+
     # 1. Extract Current Price
+    # NOTE: "product_price" was added because the real-time-amazon-data RapidAPI
+    # response returns the current price under this exact key (e.g. "$19.99").
+    # Without it, Amazon results always failed to parse a price even on a 200 OK
+    # response with a valid product match.
     price = None
-    for key in ["price", "current_price", "selling_price", "final_price", "special_price", "offer_price"]:
+    for key in [
+        "price", "current_price", "selling_price", "final_price",
+        "special_price", "offer_price", "product_price",
+    ]:
         val = p.get(key)
         parsed = parse_price(val)
         if parsed:
             price = parsed
             break
-            
+
     if not price:
         pricing = p.get("pricing")
         if isinstance(pricing, dict):
@@ -85,7 +95,10 @@ def extract_price_and_mrp_from_dict(p):
 
     # 2. Extract Real Original Price (MRP)
     original_price = None
-    for key in ["original_price", "mrp", "list_price", "full_price", "retail_price", "product_original_price"]:
+    for key in [
+        "original_price", "mrp", "list_price", "full_price",
+        "retail_price", "product_original_price",
+    ]:
         val = p.get(key)
         parsed = parse_price(val)
         if parsed:
@@ -118,9 +131,12 @@ def extract_product_title_from_url(url):
         for part in reversed(parts):
             if "-" in part or "_" in part:
                 title = part.replace("-", " ").replace("_", " ").title()
-                title = re.sub(r'\b[pP](?=\w*\d)\w+\b', '', title)
-                title = re.sub(r'\b[iI][tT][mM](?=\w*\d)\w+\b', '', title)
-                title = re.sub(r'\b[pP][iI][dD](?=\w*\d)\w+\b', '', title)
+                # Strips trailing platform-specific product/item ID tokens such as
+                # "P123456789", "ITM98765", "PID4567". A single regex covers all
+                # three cases (any alpha run containing a digit right after the
+                # leading letter(s)), so the separate itm/pid patterns that used
+                # to duplicate this logic have been removed.
+                title = re.sub(r'\b[a-zA-Z]{1,4}(?=\w*\d)\w+\b', '', title)
                 cleaned = re.sub(r'\s+', ' ', title).strip()
                 if len(cleaned) > 5:
                     return cleaned
@@ -241,7 +257,8 @@ def fetch_flipkart_data(product_title, api_key):
         if not price:
             return {
                 "price": None, "original_price": None, "url": None, "is_available": False,
-                "debug": "Flipkart product found but no valid price returned from API."
+                "debug": f"Flipkart product found but no valid price returned from API. "
+                         f"Raw keys seen: {list(p.keys())[:15]}"
             }
 
         return {"price": price, "original_price": original_price, "url": product_url, "is_available": True, "debug": None}
@@ -285,9 +302,13 @@ def fetch_amazon_data(product_title, api_key):
         product_url = p.get("product_url") or p.get("url")
 
         if not price:
+            # Surface the raw keys in debug so a future field-name mismatch
+            # (like the missing "product_price" key that caused this bug)
+            # is easy to spot without re-reading the source.
             return {
                 "price": None, "original_price": None, "url": None, "is_available": False,
-                "debug": "Amazon product found but no valid price returned from API."
+                "debug": f"Amazon product found but no valid price returned from API. "
+                         f"Raw keys seen: {list(p.keys())[:15]}"
             }
 
         return {"price": price, "original_price": original_price, "url": product_url, "is_available": True, "debug": None}
@@ -298,8 +319,13 @@ def fetch_amazon_data(product_title, api_key):
 
 def fetch_meesho_data(product_title, api_key, user_url=""):
     """Fetches real Meesho data ONLY if a valid Meesho URL or API returns live data."""
-    if not api_key or "meesho.com" not in user_url:
-        return {"price": None, "original_price": None, "url": None, "is_available": False, "debug": "No live Meesho API/URL provided."}
+    if not api_key:
+        return {"price": None, "original_price": None, "url": None, "is_available": False,
+                "debug": "No RapidAPI key provided for Meesho live data."}
+
+    if "meesho.com" not in user_url:
+        return {"price": None, "original_price": None, "url": None, "is_available": False,
+                "debug": "Meesho requires a direct meesho.com product URL (it cannot be searched by title)."}
 
     url = "https://meesho-price-history-tracker4.p.rapidapi.com/meesho.php"
     headers = {
@@ -322,10 +348,17 @@ def fetch_meesho_data(product_title, api_key, user_url=""):
                     "is_available": True,
                     "debug": None
                 }
+            return {
+                "price": None, "original_price": None, "url": None, "is_available": False,
+                "debug": "Meesho API returned 200 OK but no valid price field was found."
+            }
+
+        return {
+            "price": None, "original_price": None, "url": None, "is_available": False,
+            "debug": f"Meesho API returned HTTP {response.status_code}."
+        }
     except Exception as e:
         return {"price": None, "original_price": None, "url": None, "is_available": False, "debug": f"Meesho API error: {e}"}
-
-    return {"price": None, "original_price": None, "url": None, "is_available": False, "debug": "Meesho returned no live price."}
 
 
 def fetch_prices_via_api(product_title, api_key="", user_url=""):
