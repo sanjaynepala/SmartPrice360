@@ -21,8 +21,11 @@ st.write(
 
 # Sidebar Controls for API Keys
 st.sidebar.header("⚙️ API Settings")
-rapidapi_key ="28824a5959mshe16e9bb4a0c1057p1baebcjsn1c7063ab1392"
-
+rapidapi_key = st.sidebar.text_input(
+    "RapidAPI Key",
+    type="password",
+    help="Enter your RapidAPI key to fetch live price data from supported platforms."
+)
 # Main UI Input
 url_input = st.text_input(
     "Enter Product URL (Flipkart, Amazon, or Meesho):",
