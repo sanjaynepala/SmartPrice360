@@ -2,7 +2,7 @@
 
 Compare product prices across **Flipkart, Amazon, Meesho, Ajio, and Myntra** by simply pasting a product link from any one of them.
 
-🔗 **Live App:** [smartprice360-y3nnd9pe6gtnmhfbify6xq.streamlit.app](https://smartprice360-y3nnd9pe6gtnmhfbify6xq.streamlit.app/)
+🔗 **Live App:** https://smartprice-360.streamlit.app/
 
 ---
 
