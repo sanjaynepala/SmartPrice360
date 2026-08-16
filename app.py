@@ -21,7 +21,7 @@ st.write(
 
 # Sidebar Controls for API Keys
 st.sidebar.header("⚙️ API Settings")
-rapidapi_key ="687f7dd169msh995ee272be06115p163871jsnb2c6c09b57c2"
+rapidapi_key ="28824a5959mshe16e9bb4a0c1057p1baebcjsn1c7063ab1392"
 
 # Main UI Input
 url_input = st.text_input(
